@@ -183,4 +183,53 @@ describe('registerIpcProcedures', () => {
     assert.equal(ipcMain.getHandler('desktop:rpc'), undefined)
     assert.deepEqual(ipcMain.getRemovedChannels(), ['desktop:rpc', 'desktop:rpc'])
   })
+
+  it('rejects malformed procedure paths before lookup', async () => {
+    const ipcMain = createMockIpcMain()
+
+    registerIpcProcedures(
+      ipcMain,
+      'desktop:rpc',
+      defineIpcProcedureTree({
+        system: {
+          ping: async () => 'pong',
+        },
+      }),
+    )
+
+    const handler = ipcMain.getHandler('desktop:rpc')
+
+    assert.notEqual(handler, undefined)
+    await assert.rejects(() => handler?.({}, ''), /IPC procedure path must be a non-empty string/)
+  })
+
+  it('wraps procedure failures with the failing path', async () => {
+    const ipcMain = createMockIpcMain()
+
+    registerIpcProcedures(
+      ipcMain,
+      'desktop:rpc',
+      defineIpcProcedureTree({
+        system: {
+          fail: async () => {
+            throw new Error('boom')
+          },
+        },
+      }),
+    )
+
+    const handler = ipcMain.getHandler('desktop:rpc')
+
+    assert.notEqual(handler, undefined)
+    await assert.rejects(
+      () => handler?.({}, 'system.fail'),
+      (error: unknown) => {
+        assert(error instanceof Error)
+        assert.equal(error.message, 'IPC procedure "system.fail" failed: boom')
+        assert(error.cause instanceof Error)
+        assert.equal(error.cause.message, 'boom')
+        return true
+      },
+    )
+  })
 })

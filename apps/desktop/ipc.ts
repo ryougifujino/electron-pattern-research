@@ -190,6 +190,14 @@ const getRegisteredChannelHandlers = (ipcMain: IpcMainRegistrar) => {
   return channelHandlers
 }
 
+const assertValidProcedurePath = (procedurePath: unknown): string => {
+  if (typeof procedurePath !== 'string' || procedurePath.length === 0) {
+    throw new TypeError('IPC procedure path must be a non-empty string')
+  }
+
+  return procedurePath
+}
+
 export const registerIpcProcedures = <T extends IpcProcedureTree>(
   ipcMain: IpcMainRegistrar,
   channel: string,
@@ -203,14 +211,23 @@ export const registerIpcProcedures = <T extends IpcProcedureTree>(
     ipcMain.removeHandler(channel)
   }
 
-  const handler: RegisteredIpcHandler = (_event, procedurePath: string, ...args: unknown[]) => {
+  const handler: RegisteredIpcHandler = async (_event, rawProcedurePath: unknown, ...args: unknown[]) => {
+    const procedurePath = assertValidProcedurePath(rawProcedurePath)
     const procedure = registry.get(procedurePath)
 
     if (procedure === undefined) {
       throw new Error(`Unknown IPC procedure: ${procedurePath}`)
     }
 
-    return procedure(...args)
+    try {
+      return await procedure(...args)
+    } catch (cause) {
+      if (cause instanceof Error) {
+        throw new Error(`IPC procedure "${procedurePath}" failed: ${cause.message}`, { cause })
+      }
+
+      throw new Error(`IPC procedure "${procedurePath}" failed: ${String(cause)}`, { cause })
+    }
   }
 
   channelHandlers.set(channel, handler)
