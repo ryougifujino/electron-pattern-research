@@ -1,0 +1,25 @@
+{
+  "name": "@electron-pattern-research/desktop",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "main": "dist/main/main.mjs",
+  "scripts": {
+    "dev": "node ./scripts/dev/index.js",
+    "dev:renderer": "vite",
+    "typecheck": "tsc -b --noEmit",
+    "build": "tsc -b && vite build && tsdown",
+    "preview": "pnpm build && electron ."
+  },
+  "dependencies": {
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "electron": "^41.0.3",
+    "tsdown": "^0.21.4",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-solid": "catalog:"
+  }
+}
