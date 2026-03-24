@@ -3,8 +3,11 @@ import type { IpcMain, IpcRenderer } from 'electron'
 type AsyncProcedure = (...args: never[]) => Promise<unknown>
 type StringKeyOf<T> = Extract<keyof T, string>
 type JoinPath<Prefix extends string, Segment extends string> = Prefix extends '' ? Segment : `${Prefix}.${Segment}`
+type RegisteredIpcHandler = (event: unknown, procedurePath: string, ...args: unknown[]) => Promise<unknown> | unknown
+type IpcMainRegistrar = Pick<IpcMain, 'handle' | 'removeHandler'>
 
 const RESERVED_PROCEDURE_SEGMENTS = new Set(['then'])
+const registeredIpcHandlersByChannel = new WeakMap<IpcMainRegistrar, Map<string, RegisteredIpcHandler>>()
 
 export interface IpcProcedureTree {
   [key: string]: AsyncProcedure | IpcProcedureTree
@@ -176,15 +179,31 @@ const flattenIpcProcedureTree = (
   return registry
 }
 
+const getRegisteredChannelHandlers = (ipcMain: IpcMainRegistrar) => {
+  let channelHandlers = registeredIpcHandlersByChannel.get(ipcMain)
+
+  if (channelHandlers === undefined) {
+    channelHandlers = new Map<string, RegisteredIpcHandler>()
+    registeredIpcHandlersByChannel.set(ipcMain, channelHandlers)
+  }
+
+  return channelHandlers
+}
+
 export const registerIpcProcedures = <T extends IpcProcedureTree>(
-  ipcMain: Pick<IpcMain, 'handle'>,
+  ipcMain: IpcMainRegistrar,
   channel: string,
   procedures: T,
 ) => {
   validateIpcProcedureTree(procedures)
   const registry = flattenIpcProcedureTree(procedures)
+  const channelHandlers = getRegisteredChannelHandlers(ipcMain)
 
-  ipcMain.handle(channel, (_event, procedurePath: string, ...args: unknown[]) => {
+  if (channelHandlers.has(channel)) {
+    ipcMain.removeHandler(channel)
+  }
+
+  const handler: RegisteredIpcHandler = (_event, procedurePath: string, ...args: unknown[]) => {
     const procedure = registry.get(procedurePath)
 
     if (procedure === undefined) {
@@ -192,5 +211,21 @@ export const registerIpcProcedures = <T extends IpcProcedureTree>(
     }
 
     return procedure(...args)
-  })
+  }
+
+  channelHandlers.set(channel, handler)
+  ipcMain.handle(channel, handler)
+
+  return () => {
+    if (channelHandlers.get(channel) !== handler) {
+      return
+    }
+
+    ipcMain.removeHandler(channel)
+    channelHandlers.delete(channel)
+
+    if (channelHandlers.size === 0) {
+      registeredIpcHandlersByChannel.delete(ipcMain)
+    }
+  }
 }

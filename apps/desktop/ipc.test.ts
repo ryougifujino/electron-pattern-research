@@ -141,4 +141,46 @@ describe('registerIpcProcedures', () => {
       assert.equal(result, 'pong')
     })
   })
+
+  it('replaces prior handlers and returns generation-safe cleanup', async () => {
+    const ipcMain = createMockIpcMain()
+
+    const cleanupFirstRegistration = registerIpcProcedures(
+      ipcMain,
+      'desktop:rpc',
+      defineIpcProcedureTree({
+        system: {
+          ping: async () => 'first',
+        },
+      }),
+    )
+
+    const cleanupSecondRegistration = registerIpcProcedures(
+      ipcMain,
+      'desktop:rpc',
+      defineIpcProcedureTree({
+        system: {
+          ping: async () => 'second',
+        },
+      }),
+    )
+
+    const handlerAfterSecondRegistration = ipcMain.getHandler('desktop:rpc')
+
+    assert.notEqual(handlerAfterSecondRegistration, undefined)
+    assert.equal(await handlerAfterSecondRegistration?.({}, 'system.ping'), 'second')
+    assert.deepEqual(ipcMain.getRemovedChannels(), ['desktop:rpc'])
+
+    cleanupFirstRegistration()
+
+    const handlerAfterStaleCleanup = ipcMain.getHandler('desktop:rpc')
+
+    assert.notEqual(handlerAfterStaleCleanup, undefined)
+    assert.equal(await handlerAfterStaleCleanup?.({}, 'system.ping'), 'second')
+
+    cleanupSecondRegistration()
+
+    assert.equal(ipcMain.getHandler('desktop:rpc'), undefined)
+    assert.deepEqual(ipcMain.getRemovedChannels(), ['desktop:rpc', 'desktop:rpc'])
+  })
 })
