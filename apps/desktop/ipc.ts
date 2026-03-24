@@ -4,6 +4,8 @@ type AsyncProcedure = (...args: never[]) => Promise<unknown>
 type StringKeyOf<T> = Extract<keyof T, string>
 type JoinPath<Prefix extends string, Segment extends string> = Prefix extends '' ? Segment : `${Prefix}.${Segment}`
 
+const RESERVED_PROCEDURE_SEGMENTS = new Set(['then'])
+
 export interface IpcProcedureTree {
   [key: string]: AsyncProcedure | IpcProcedureTree
 }
@@ -50,7 +52,64 @@ export type IpcProcedureClient<T extends IpcProcedureTree> = {
 
 export const DESKTOP_RPC_CHANNEL = 'desktop:rpc' as const
 
-export const defineIpcProcedureTree = <T extends IpcProcedureTree>(procedures: T): T => procedures
+const formatProcedurePath = (pathSegments: string[]) => (pathSegments.length === 0 ? '<root>' : pathSegments.join('.'))
+
+const isPlainObject = (value: unknown): value is IpcProcedureTree => {
+  if (value === null || typeof value !== 'object') {
+    return false
+  }
+
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+const assertValidProcedureSegment = (segment: string, pathSegments: string[]) => {
+  if (segment.length === 0) {
+    throw new TypeError(
+      `Invalid IPC procedure segment at "${formatProcedurePath(pathSegments)}": segments must be non-empty`,
+    )
+  }
+
+  if (segment.includes('.')) {
+    throw new TypeError(`Invalid IPC procedure segment "${segment}": segments cannot contain "."`)
+  }
+
+  if (RESERVED_PROCEDURE_SEGMENTS.has(segment)) {
+    throw new TypeError(`Invalid IPC procedure segment "${segment}": segments cannot use reserved segment "${segment}"`)
+  }
+}
+
+const validateIpcProcedureTree = (procedures: IpcProcedureTree, pathSegments: string[] = []) => {
+  if (!isPlainObject(procedures)) {
+    throw new TypeError(
+      `Invalid IPC procedure tree at "${formatProcedurePath(pathSegments)}": namespaces must be plain objects`,
+    )
+  }
+
+  for (const [key, value] of Object.entries(procedures)) {
+    const nextPathSegments = [...pathSegments, key]
+
+    assertValidProcedureSegment(key, nextPathSegments)
+
+    if (typeof value === 'function') {
+      continue
+    }
+
+    if (isPlainObject(value)) {
+      validateIpcProcedureTree(value, nextPathSegments)
+      continue
+    }
+
+    throw new TypeError(
+      `Invalid IPC procedure tree at "${formatProcedurePath(nextPathSegments)}": namespaces must be plain objects`,
+    )
+  }
+}
+
+export const defineIpcProcedureTree = <T extends IpcProcedureTree>(procedures: T): T => {
+  validateIpcProcedureTree(procedures)
+  return procedures
+}
 
 export const createIpcBridge = <T extends IpcProcedureTree>(
   ipcRenderer: Pick<IpcRenderer, 'invoke'>,
@@ -104,12 +163,14 @@ const flattenIpcProcedureTree = (
       continue
     }
 
-    if (value !== null && typeof value === 'object') {
+    if (isPlainObject(value)) {
       flattenIpcProcedureTree(value, nextPathSegments, registry)
       continue
     }
 
-    throw new TypeError(`Invalid IPC procedure at namespace "${nextPathSegments.join('.')}"`)
+    throw new TypeError(
+      `Invalid IPC procedure tree at "${formatProcedurePath(nextPathSegments)}": namespaces must be plain objects`,
+    )
   }
 
   return registry
@@ -120,6 +181,7 @@ export const registerIpcProcedures = <T extends IpcProcedureTree>(
   channel: string,
   procedures: T,
 ) => {
+  validateIpcProcedureTree(procedures)
   const registry = flattenIpcProcedureTree(procedures)
 
   ipcMain.handle(channel, (_event, procedurePath: string, ...args: unknown[]) => {

@@ -12,6 +12,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @electron-pattern-research/desktop dev",
+    "test": "pnpm --filter @electron-pattern-research/desktop test",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint . --max-warnings=0",
     "stylelint": "stylelint \"apps/**/*.{css,scss}\"",

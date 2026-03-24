@@ -125,6 +125,14 @@ This tree is the source of truth. If a procedure exists here, the renderer can
 call it through the proxy client. If it does not exist here, there is nothing
 to dispatch on the main side.
 
+Procedure trees also have a few runtime guardrails so the proxy can round-trip
+procedure names safely:
+
+- namespaces must be plain objects
+- each path segment must be non-empty
+- path segments cannot contain `.`
+- path segments cannot be named `then`
+
 ### Bridge
 
 The preload layer exposes a deliberately tiny bridge:
