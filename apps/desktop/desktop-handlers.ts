@@ -2,11 +2,15 @@ import { defineIpcHandlers } from './ipc.ts'
 
 export const createDesktopHandlers = () =>
   defineIpcHandlers({
-    async ping() {
-      return 'pong from main'
+    system: {
+      async ping() {
+        return 'pong from main'
+      },
     },
-    foo(bar: string) {
-      return Promise.resolve(bar)
+    demo: {
+      foo(bar: string) {
+        return Promise.resolve(bar)
+      },
     },
   })
 

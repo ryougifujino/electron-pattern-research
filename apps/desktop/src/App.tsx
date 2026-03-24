@@ -1,13 +1,15 @@
 import { createSignal } from 'solid-js'
-import { desktopApi } from './desktop-api.ts'
+import { createDesktopApiClient } from './desktop-api.ts'
 import './App.css'
+
+const api = createDesktopApiClient()
 
 function App() {
   const [message, setMessage] = createSignal('')
 
   const callMain = async () => {
-    const foo = await desktopApi.foo('233')
-    const result = await desktopApi.ping()
+    const foo = await api.demo.foo('233')
+    const result = await api.system.ping()
     setMessage(result + foo)
   }
 
