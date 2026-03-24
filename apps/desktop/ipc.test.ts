@@ -1,14 +1,22 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import type { IpcMainInvokeEvent } from 'electron'
 import {
   createIpcBridge,
   createIpcProcedureClient,
   defineIpcProcedureTree,
   registerIpcProcedures,
+  type IpcBridge,
   type IpcProcedureTree,
 } from './ipc.ts'
 
-type RegisteredIpcHandler = (event: unknown, procedurePath: string, ...args: unknown[]) => Promise<unknown> | unknown
+type RegisteredIpcHandler = (
+  event: IpcMainInvokeEvent,
+  procedurePath: string,
+  ...args: unknown[]
+) => Promise<unknown> | unknown
+
+const mockIpcEvent = {} as IpcMainInvokeEvent
 
 const createMockIpcMain = () => {
   const handlers = new Map<string, RegisteredIpcHandler>()
@@ -30,6 +38,19 @@ const createMockIpcMain = () => {
     },
   }
 }
+
+const getRequiredHandler = (ipcMain: ReturnType<typeof createMockIpcMain>, channel: string) => {
+  const handler = ipcMain.getHandler(channel)
+
+  if (handler === undefined) {
+    throw new Error(`Expected IPC handler for channel "${channel}" to be registered`)
+  }
+
+  return handler
+}
+
+const invokeHandler = (handler: RegisteredIpcHandler, procedurePath: string, ...args: unknown[]) =>
+  Promise.resolve(handler(mockIpcEvent, procedurePath, ...args))
 
 describe('createIpcBridge', () => {
   it('forwards calls through the configured Electron channel', async () => {
@@ -53,18 +74,22 @@ describe('createIpcBridge', () => {
 
 describe('createIpcProcedureClient', () => {
   it('builds nested procedure paths lazily', async () => {
-    const recordedCalls: Array<{ procedurePath: string; args: unknown[] }> = []
-    const client = createIpcProcedureClient<{
+    type ClientProcedures = {
       system: {
-        ping: () => Promise<string>
+        ping: () => Promise<'system.ping'>
       }
       demo: {
-        echo: (value: string) => Promise<string>
+        echo: (value: string) => Promise<'demo.echo'>
       }
-    }>(async (procedurePath, ...args) => {
+    }
+
+    const recordedCalls: Array<{ procedurePath: string; args: unknown[] }> = []
+    const invokeProcedure = ((procedurePath: string, ...args: unknown[]) => {
       recordedCalls.push({ procedurePath, args })
-      return procedurePath
-    })
+      return Promise.resolve(procedurePath === 'system.ping' ? 'system.ping' : 'demo.echo')
+    }) as IpcBridge<ClientProcedures>['invoke']
+
+    const client = createIpcProcedureClient<ClientProcedures>(invokeProcedure)
 
     const pingResult = await client.system.ping()
     const echoResult = await client.demo.echo('hello')
@@ -78,7 +103,13 @@ describe('createIpcProcedureClient', () => {
   })
 
   it('rejects invoking the root namespace directly', async () => {
-    const client = createIpcProcedureClient<{ system: { ping: () => Promise<string> } }>(async () => 'ok')
+    type ClientProcedures = {
+      system: {
+        ping: () => Promise<'ok'>
+      }
+    }
+    const invokeProcedure = (() => Promise.resolve('ok')) as IpcBridge<ClientProcedures>['invoke']
+    const client = createIpcProcedureClient<ClientProcedures>(invokeProcedure)
 
     assert.throws(
       () => (client as unknown as (...args: never[]) => Promise<unknown>)(),
@@ -133,11 +164,9 @@ describe('registerIpcProcedures', () => {
       }),
     )
 
-    const handler = ipcMain.getHandler('desktop:rpc')
-
-    assert.notEqual(handler, undefined)
+    const handler = getRequiredHandler(ipcMain, 'desktop:rpc')
     await assert.doesNotReject(async () => {
-      const result = await handler?.({}, 'system.ping')
+      const result = await invokeHandler(handler, 'system.ping')
       assert.equal(result, 'pong')
     })
   })
@@ -165,18 +194,16 @@ describe('registerIpcProcedures', () => {
       }),
     )
 
-    const handlerAfterSecondRegistration = ipcMain.getHandler('desktop:rpc')
+    const handlerAfterSecondRegistration = getRequiredHandler(ipcMain, 'desktop:rpc')
 
-    assert.notEqual(handlerAfterSecondRegistration, undefined)
-    assert.equal(await handlerAfterSecondRegistration?.({}, 'system.ping'), 'second')
+    assert.equal(await invokeHandler(handlerAfterSecondRegistration, 'system.ping'), 'second')
     assert.deepEqual(ipcMain.getRemovedChannels(), ['desktop:rpc'])
 
     cleanupFirstRegistration()
 
-    const handlerAfterStaleCleanup = ipcMain.getHandler('desktop:rpc')
+    const handlerAfterStaleCleanup = getRequiredHandler(ipcMain, 'desktop:rpc')
 
-    assert.notEqual(handlerAfterStaleCleanup, undefined)
-    assert.equal(await handlerAfterStaleCleanup?.({}, 'system.ping'), 'second')
+    assert.equal(await invokeHandler(handlerAfterStaleCleanup, 'system.ping'), 'second')
 
     cleanupSecondRegistration()
 
@@ -197,10 +224,9 @@ describe('registerIpcProcedures', () => {
       }),
     )
 
-    const handler = ipcMain.getHandler('desktop:rpc')
+    const handler = getRequiredHandler(ipcMain, 'desktop:rpc')
 
-    assert.notEqual(handler, undefined)
-    await assert.rejects(() => handler?.({}, ''), /IPC procedure path must be a non-empty string/)
+    await assert.rejects(() => invokeHandler(handler, ''), /IPC procedure path must be a non-empty string/)
   })
 
   it('wraps procedure failures with the failing path', async () => {
@@ -218,11 +244,9 @@ describe('registerIpcProcedures', () => {
       }),
     )
 
-    const handler = ipcMain.getHandler('desktop:rpc')
-
-    assert.notEqual(handler, undefined)
+    const handler = getRequiredHandler(ipcMain, 'desktop:rpc')
     await assert.rejects(
-      () => handler?.({}, 'system.fail'),
+      () => invokeHandler(handler, 'system.fail'),
       (error: unknown) => {
         assert(error instanceof Error)
         assert.equal(error.message, 'IPC procedure "system.fail" failed: boom')

@@ -22,5 +22,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["main.ts", "preload.ts", "tsdown.config.ts", "vite.config.ts"]
+  "include": ["main.ts", "preload.ts", "ipc.test.ts", "tsdown.config.ts", "vite.config.ts"]
 }
