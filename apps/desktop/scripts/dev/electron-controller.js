@@ -5,7 +5,7 @@ import process from 'node:process'
 export class ElectronController {
   #appDir
   #devServerUrl = ''
-  #electronEntryPath
+  #electronBundleEntryPaths
   #electronEntryWatchIntervalMs
   #electronProcess = null
   #electronShutdownGraceMs
@@ -16,11 +16,11 @@ export class ElectronController {
   #restartAfterExit = false
   #restartTimer = null
   #supervisor
-  #lastKnownElectronEntryMtimeMs = 0
+  #lastKnownBundleMtimeMs = new Map()
 
   constructor({
     appDir,
-    electronEntryPath,
+    electronBundleEntryPaths,
     electronEntryWatchIntervalMs,
     electronShutdownGraceMs,
     log,
@@ -30,7 +30,7 @@ export class ElectronController {
     supervisor,
   }) {
     this.#appDir = appDir
-    this.#electronEntryPath = electronEntryPath
+    this.#electronBundleEntryPaths = electronBundleEntryPaths
     this.#electronEntryWatchIntervalMs = electronEntryWatchIntervalMs
     this.#electronShutdownGraceMs = electronShutdownGraceMs
     this.#log = log
@@ -44,23 +44,23 @@ export class ElectronController {
     this.#devServerUrl = url
   }
 
-  setElectronEntryMtime(mtimeMs) {
-    this.#lastKnownElectronEntryMtimeMs = mtimeMs
+  setBundleFileMtime(filePath, mtimeMs) {
+    this.#lastKnownBundleMtimeMs.set(filePath, mtimeMs)
   }
 
-  watchElectronEntry() {
-    watchFile(this.#electronEntryPath, { interval: this.#electronEntryWatchIntervalMs }, (current) => {
-      if (
-        this.#supervisor.isShuttingDown ||
-        current.mtimeMs === 0 ||
-        current.mtimeMs <= this.#lastKnownElectronEntryMtimeMs
-      ) {
-        return
-      }
+  watchBundleFiles() {
+    for (const filePath of this.#electronBundleEntryPaths) {
+      watchFile(filePath, { interval: this.#electronEntryWatchIntervalMs }, (current) => {
+        const lastKnownMtimeMs = this.#lastKnownBundleMtimeMs.get(filePath) ?? 0
 
-      this.#lastKnownElectronEntryMtimeMs = current.mtimeMs
-      this.#scheduleRestart()
-    })
+        if (this.#supervisor.isShuttingDown || current.mtimeMs === 0 || current.mtimeMs <= lastKnownMtimeMs) {
+          return
+        }
+
+        this.#lastKnownBundleMtimeMs.set(filePath, current.mtimeMs)
+        this.#scheduleRestart()
+      })
+    }
   }
 
   stopWatching() {
@@ -69,7 +69,9 @@ export class ElectronController {
       this.#restartTimer = null
     }
 
-    unwatchFile(this.#electronEntryPath)
+    for (const filePath of this.#electronBundleEntryPaths) {
+      unwatchFile(filePath)
+    }
   }
 
   start() {

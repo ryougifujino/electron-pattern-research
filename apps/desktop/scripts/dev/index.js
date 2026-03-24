@@ -2,7 +2,7 @@ import process from 'node:process'
 import {
   appDir,
   devServerHost,
-  electronEntryPath,
+  electronBundleEntryPaths,
   electronEntryWatchIntervalMs,
   electronShutdownGraceMs,
   firstDevServerPort,
@@ -34,7 +34,7 @@ const supervisor = new ProcessSupervisor({
 
 const electronController = new ElectronController({
   appDir,
-  electronEntryPath,
+  electronBundleEntryPaths,
   electronEntryWatchIntervalMs,
   electronShutdownGraceMs,
   log,
@@ -78,12 +78,15 @@ async function main() {
   log('Watching Electron bundle with tsdown.')
   supervisor.spawnPnpmCommand(['exec', 'tsdown', '--watch'], 'Electron bundle watcher')
 
-  const [electronEntryStats] = await Promise.all([
-    waitForFile(electronEntryPath, waitTimeoutMs),
+  const [electronBundleEntryStats] = await Promise.all([
+    Promise.all(electronBundleEntryPaths.map((filePath) => waitForFile(filePath, waitTimeoutMs))),
     waitForDevServer(devServerUrl, waitTimeoutMs),
   ])
-  electronController.setElectronEntryMtime(electronEntryStats.mtimeMs)
-  electronController.watchElectronEntry()
+
+  electronBundleEntryStats.forEach((fileStats, index) => {
+    electronController.setBundleFileMtime(electronBundleEntryPaths[index], fileStats.mtimeMs)
+  })
+  electronController.watchBundleFiles()
 
   log('Renderer and Electron bundle are ready. Launching Electron.')
   electronController.start()

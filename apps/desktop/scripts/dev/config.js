@@ -12,5 +12,8 @@ export const electronShutdownGraceMs = 5_000
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 
 export const appDir = path.resolve(currentDir, '..', '..')
-export const electronEntryPath = path.join(appDir, 'dist', 'main', 'main.mjs')
+export const electronBundleEntryPaths = [
+  path.join(appDir, 'dist', 'main', 'main.mjs'),
+  path.join(appDir, 'dist', 'main', 'preload.cjs'),
+]
 export const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'

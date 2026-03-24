@@ -4,6 +4,7 @@ import { app, BrowserWindow } from 'electron'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const rendererIndexPath = path.join(currentDir, '..', 'renderer', 'index.html')
+const preloadPath = path.join(currentDir, 'preload.cjs')
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL
 
@@ -13,6 +14,9 @@ const createWindow = () => {
     height: 760,
     minWidth: 960,
     minHeight: 640,
+    webPreferences: {
+      preload: preloadPath,
+    },
   })
 
   if (devServerUrl !== undefined) {
