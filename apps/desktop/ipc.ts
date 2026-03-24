@@ -1,22 +1,18 @@
 import type { IpcMain, IpcRenderer } from 'electron'
 
-type AsyncMethod = (...args: never[]) => Promise<unknown>
+type AsyncProcedure = (...args: never[]) => Promise<unknown>
 type StringKeyOf<T> = Extract<keyof T, string>
 type JoinPath<Prefix extends string, Segment extends string> = Prefix extends '' ? Segment : `${Prefix}.${Segment}`
 
-export interface IpcHandlerTree {
-  [key: string]: AsyncMethod | IpcHandlerTree
+export interface IpcProcedureTree {
+  [key: string]: AsyncProcedure | IpcProcedureTree
 }
 
-export type IpcHandlers<T extends IpcHandlerTree> = {
-  [K in keyof T]: T[K] extends AsyncMethod ? T[K] : T[K] extends IpcHandlerTree ? IpcHandlers<T[K]> : never
-}
-
-type LeafMethodPaths<T extends IpcHandlerTree, Prefix extends string = ''> = {
-  [K in StringKeyOf<T>]: T[K] extends AsyncMethod
+type LeafProcedurePaths<T extends IpcProcedureTree, Prefix extends string = ''> = {
+  [K in StringKeyOf<T>]: T[K] extends AsyncProcedure
     ? JoinPath<Prefix, K>
-    : T[K] extends IpcHandlerTree
-      ? LeafMethodPaths<T[K], JoinPath<Prefix, K>>
+    : T[K] extends IpcProcedureTree
+      ? LeafProcedurePaths<T[K], JoinPath<Prefix, K>>
       : never
 }[StringKeyOf<T>]
 
@@ -28,101 +24,111 @@ type PathValue<T, Path extends string> = Path extends `${infer Head}.${infer Tai
     ? T[Path]
     : never
 
-type MethodAtPath<T extends IpcHandlerTree, Path extends LeafMethodPaths<T>> = Extract<PathValue<T, Path>, AsyncMethod>
-type MethodArgs<T extends IpcHandlerTree, Path extends LeafMethodPaths<T>> = Parameters<MethodAtPath<T, Path>>
-type MethodResult<T extends IpcHandlerTree, Path extends LeafMethodPaths<T>> = Awaited<
-  ReturnType<MethodAtPath<T, Path>>
+type ProcedureAtPath<T extends IpcProcedureTree, Path extends LeafProcedurePaths<T>> = Extract<
+  PathValue<T, Path>,
+  AsyncProcedure
+>
+type ProcedureArgs<T extends IpcProcedureTree, Path extends LeafProcedurePaths<T>> = Parameters<
+  ProcedureAtPath<T, Path>
+>
+type ProcedureResult<T extends IpcProcedureTree, Path extends LeafProcedurePaths<T>> = Awaited<
+  ReturnType<ProcedureAtPath<T, Path>>
 >
 
-type InvokeBridge<T extends IpcHandlerTree> = <K extends LeafMethodPaths<T>>(
-  method: K,
-  ...args: MethodArgs<T, K>
-) => Promise<MethodResult<T, K>>
+type IpcInvokeTransport<T extends IpcProcedureTree> = <K extends LeafProcedurePaths<T>>(
+  procedurePath: K,
+  ...args: ProcedureArgs<T, K>
+) => Promise<ProcedureResult<T, K>>
 
-export type ElectronAPI<T extends IpcHandlerTree> = {
-  invoke: InvokeBridge<T>
+export type IpcBridge<T extends IpcProcedureTree> = {
+  invoke: IpcInvokeTransport<T>
 }
 
-export type IpcClient<T extends IpcHandlerTree> = {
-  [K in keyof T]: T[K] extends AsyncMethod ? T[K] : T[K] extends IpcHandlerTree ? IpcClient<T[K]> : never
+export type IpcProcedureClient<T extends IpcProcedureTree> = {
+  [K in keyof T]: T[K] extends AsyncProcedure ? T[K] : T[K] extends IpcProcedureTree ? IpcProcedureClient<T[K]> : never
 }
 
-export const DESKTOP_IPC_CHANNEL = 'app:invoke' as const
+export const DESKTOP_RPC_CHANNEL = 'desktop:rpc' as const
 
-export const defineIpcHandlers = <T extends IpcHandlerTree>(handlers: T): T => handlers
+export const defineIpcProcedureTree = <T extends IpcProcedureTree>(procedures: T): T => procedures
 
-export const createElectronAPI = <T extends IpcHandlerTree>(
+export const createIpcBridge = <T extends IpcProcedureTree>(
   ipcRenderer: Pick<IpcRenderer, 'invoke'>,
   channel: string,
-): ElectronAPI<T> => ({
-  invoke: (method, ...args) => ipcRenderer.invoke(channel, method, ...(args as unknown[])),
+): IpcBridge<T> => ({
+  invoke: (procedurePath, ...args) => ipcRenderer.invoke(channel, procedurePath, ...(args as unknown[])),
 })
 
-const createIpcClientProxy = (invoke: (method: string, ...args: unknown[]) => Promise<unknown>, path: string[]) =>
+const createIpcProcedureProxy = (
+  invokeProcedure: (procedurePath: string, ...args: unknown[]) => Promise<unknown>,
+  pathSegments: string[],
+) =>
   new Proxy(() => undefined, {
     apply(_target, _thisArg, args) {
-      if (path.length === 0) {
-        throw new Error('Cannot invoke the root IPC client directly')
+      if (pathSegments.length === 0) {
+        throw new Error('Cannot invoke the root IPC namespace directly')
       }
 
-      return invoke(path.join('.'), ...args)
+      return invokeProcedure(pathSegments.join('.'), ...args)
     },
     get(_target, property) {
       if (typeof property !== 'string' || property === 'then') {
         return undefined
       }
 
-      return createIpcClientProxy(invoke, [...path, property])
+      return createIpcProcedureProxy(invokeProcedure, [...pathSegments, property])
     },
   })
 
-export const createIpcClient = <T extends IpcHandlerTree>(invoke: InvokeBridge<T>): IpcClient<T> => {
+export const createIpcProcedureClient = <T extends IpcProcedureTree>(
+  invokeProcedure: IpcInvokeTransport<T>,
+): IpcProcedureClient<T> => {
   // The proxy is intentionally both callable and traversable, so nested namespaces
   // like `api.system.ping()` resolve without needing the full handler tree in preload.
-  return createIpcClientProxy(
-    invoke as (method: string, ...args: unknown[]) => Promise<unknown>,
+  return createIpcProcedureProxy(
+    invokeProcedure as (procedurePath: string, ...args: unknown[]) => Promise<unknown>,
     [],
-  ) as unknown as IpcClient<T>
+  ) as unknown as IpcProcedureClient<T>
 }
 
-const flattenIpcHandlers = (
-  handlers: IpcHandlerTree,
-  path: string[] = [],
+const flattenIpcProcedureTree = (
+  procedures: IpcProcedureTree,
+  pathSegments: string[] = [],
   registry = new Map<string, (...args: unknown[]) => Promise<unknown>>(),
 ) => {
-  for (const [key, value] of Object.entries(handlers)) {
-    const nextPath = [...path, key]
+  for (const [key, value] of Object.entries(procedures)) {
+    const nextPathSegments = [...pathSegments, key]
 
     if (typeof value === 'function') {
-      registry.set(nextPath.join('.'), value as (...args: unknown[]) => Promise<unknown>)
+      registry.set(nextPathSegments.join('.'), value as (...args: unknown[]) => Promise<unknown>)
       continue
     }
 
     if (value !== null && typeof value === 'object') {
-      flattenIpcHandlers(value, nextPath, registry)
+      flattenIpcProcedureTree(value, nextPathSegments, registry)
       continue
     }
 
-    throw new TypeError(`Invalid IPC handler at namespace "${nextPath.join('.')}"`)
+    throw new TypeError(`Invalid IPC procedure at namespace "${nextPathSegments.join('.')}"`)
   }
 
   return registry
 }
 
-export const registerIpcHandlers = <T extends IpcHandlerTree>(
+export const registerIpcProcedures = <T extends IpcProcedureTree>(
   ipcMain: Pick<IpcMain, 'handle'>,
   channel: string,
-  handlers: T,
+  procedures: T,
 ) => {
-  const registry = flattenIpcHandlers(handlers)
+  const registry = flattenIpcProcedureTree(procedures)
 
-  ipcMain.handle(channel, (_event, method: string, ...args: unknown[]) => {
-    const handler = registry.get(method)
+  ipcMain.handle(channel, (_event, procedurePath: string, ...args: unknown[]) => {
+    const procedure = registry.get(procedurePath)
 
-    if (handler === undefined) {
-      throw new Error(`Unknown IPC method: ${method}`)
+    if (procedure === undefined) {
+      throw new Error(`Unknown IPC procedure: ${procedurePath}`)
     }
 
-    return handler(...args)
+    return procedure(...args)
   })
 }

@@ -1,15 +1,15 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { createDesktopHandlers } from './desktop-handlers.ts'
-import { DESKTOP_IPC_CHANNEL, registerIpcHandlers } from './ipc.ts'
+import { createDesktopProcedures } from './desktop-procedures.ts'
+import { DESKTOP_RPC_CHANNEL, registerIpcProcedures } from './ipc.ts'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const rendererIndexPath = path.join(currentDir, '..', 'renderer', 'index.html')
 const preloadPath = path.join(currentDir, 'preload.cjs')
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL
-const desktopHandlers = createDesktopHandlers()
+const desktopProcedures = createDesktopProcedures()
 
 const createWindow = () => {
   const win = new BrowserWindow({
@@ -31,7 +31,7 @@ const createWindow = () => {
 }
 
 app.whenReady().then(() => {
-  registerIpcHandlers(ipcMain, DESKTOP_IPC_CHANNEL, desktopHandlers)
+  registerIpcProcedures(ipcMain, DESKTOP_RPC_CHANNEL, desktopProcedures)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

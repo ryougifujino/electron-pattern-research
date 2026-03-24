@@ -1,24 +1,24 @@
 import { createSignal } from 'solid-js'
-import { createDesktopApiClient } from './desktop-api.ts'
+import { createDesktopClient } from './desktop-client.ts'
 import './App.css'
 
-const api = createDesktopApiClient()
+const desktopClient = createDesktopClient()
 
 function App() {
-  const [message, setMessage] = createSignal('')
+  const [responseText, setResponseText] = createSignal('')
 
-  const callMain = async () => {
-    const foo = await api.demo.foo('233')
-    const result = await api.system.ping()
-    setMessage(result + foo)
+  const runDesktopDemo = async () => {
+    const echoedValue = await desktopClient.demo.echo('233')
+    const pingReply = await desktopClient.system.ping()
+    setResponseText(`${pingReply} ${echoedValue}`)
   }
 
   return (
     <main class="app">
-      <h1>Minimal IPC</h1>
+      <h1>RPC over IPC</h1>
       <div class="card">
-        <button onClick={() => void callMain()}>{'renderer -> preload -> main'}</button>
-        <p>{message()}</p>
+        <button onClick={() => void runDesktopDemo()}>{'renderer -> preload bridge -> main procedures'}</button>
+        <p>{responseText()}</p>
       </div>
     </main>
   )
