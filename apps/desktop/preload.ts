@@ -1,1 +1,5 @@
-export {}
+import { contextBridge, ipcRenderer } from 'electron'
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  ping: () => ipcRenderer.invoke('app:ping'),
+})

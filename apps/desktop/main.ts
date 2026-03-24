@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const rendererIndexPath = path.join(currentDir, '..', 'renderer', 'index.html')
@@ -28,6 +28,10 @@ const createWindow = () => {
 }
 
 app.whenReady().then(() => {
+  ipcMain.handle('app:ping', () => {
+    return 'pong from main'
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
