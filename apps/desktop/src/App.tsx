@@ -1,12 +1,14 @@
 import { createSignal } from 'solid-js'
+import { desktopApi } from './desktop-api.ts'
 import './App.css'
 
 function App() {
-  const [message, setMessage] = createSignal('点击按钮调用 main')
+  const [message, setMessage] = createSignal('')
 
   const callMain = async () => {
-    const result = await window.electronAPI.ping()
-    setMessage(result)
+    const foo = await desktopApi.foo('233')
+    const result = await desktopApi.ping()
+    setMessage(result + foo)
   }
 
   return (

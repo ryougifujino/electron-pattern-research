@@ -1,9 +1,10 @@
+import type { DesktopApi } from '../desktop-handlers.ts'
+import type { ElectronAPI } from '../ipc.ts'
+
 export {}
 
 declare global {
   interface Window {
-    electronAPI: {
-      ping: () => Promise<string>
-    }
+    electronAPI: ElectronAPI<DesktopApi>
   }
 }
